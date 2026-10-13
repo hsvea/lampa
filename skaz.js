@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.3 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.4 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, storage changes, key remapping or player replacement.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.3', applied: 0, lastError: ''};
+    var api = {version: '0.4', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -77,6 +77,24 @@
         var original = handler.down;
         var name = active.name;
         handler.__skazFocusFix = true;
+        if (name === 'player_panel') {
+            ['left', 'right'].forEach(function (direction) {
+                var previous = handler[direction];
+                handler[direction] = function () {
+                    var root = panel();
+                    if (root && root.querySelector('.player-panel__timeline.focus') && !buttonFocused(root)) {
+                        // A focused timeline needs the seek controller, not button navigation.
+                        Lampa.Controller.toggle('player_rewind');
+                        if (Lampa.Controller.enabled().name === 'player_rewind') {
+                            Lampa.Controller.trigger(direction);
+                            return;
+                        }
+                    }
+                    if (typeof previous === 'function') return previous.apply(this, arguments);
+                    if (typeof previous === 'string') return Lampa.Controller.trigger(previous);
+                };
+            });
+        }
         handler.down = function () {
             var root = panel();
             // Only intervene when navigating out of the timeline, or when
@@ -111,7 +129,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.3', lines: [], sequence: 0};
+    var state = {version: '0.4', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var keys = {13: 'OK', 27: 'BACK', 37: 'LEFT', 38: 'UP', 39: 'RIGHT', 40: 'DOWN', 461: 'BACK', 10009: 'BACK'};
@@ -154,7 +172,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.3 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.4 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -196,7 +214,7 @@
         observeController();
         add('READY: play Skaz, press DOWN twice, then RIGHT');
         setInterval(function () { observeController(); render(); }, 500);
-        if (Lampa.Noty) Lampa.Noty.show('SKAZ DIAG 0.3 загружен');
+        if (Lampa.Noty) Lampa.Noty.show('SKAZ DIAG 0.4 загружен');
     }
     render();
     if (window.Lampa && window.appready) start();
