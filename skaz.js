@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.2 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.3 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, storage changes, key remapping or player replacement.
  * Disable this extension and restart Lampa to undo.
@@ -6,11 +6,13 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.2', applied: 0, lastError: ''};
+    var api = {version: '0.3', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
-        if (!el || !el.getClientRects().length || el.offsetParent === null) return false;
+        if (!el || !el.getClientRects().length) return false;
+        var rect = el.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return false;
         var style = window.getComputedStyle(el);
         return style.display !== 'none' && style.visibility !== 'hidden';
     }
@@ -18,7 +20,7 @@
     function panel() {
         var nodes = document.querySelectorAll('.player .player-panel');
         for (var i = nodes.length - 1; i >= 0; i--) {
-            if (visible(nodes[i])) return nodes[i];
+            if (visible(nodes[i]) || buttons(nodes[i]).length) return nodes[i];
         }
         return null;
     }
@@ -54,7 +56,12 @@
             if (list[i].classList.contains('player-panel__playpause')) target = list[i];
         }
         controller.collectionSet(root);
-        controller.collectionFocus(target, root);
+        if (target.offsetParent !== null) controller.collectionFocus(target, root);
+        else {
+            // Fixed elements can be rendered with a null offsetParent on TV browsers.
+            // collectionFocus would reject them and select the timeline again.
+            controller.focus(window.jQuery ? window.jQuery(target) : target);
+        }
         // Lampa may omit the visual marker if it misdetects the platform.
         // collectionFocus above still establishes the actual selected control.
         target.classList.add('focus');
@@ -104,7 +111,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.2', lines: [], sequence: 0};
+    var state = {version: '0.3', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var keys = {13: 'OK', 27: 'BACK', 37: 'LEFT', 38: 'UP', 39: 'RIGHT', 40: 'DOWN', 461: 'BACK', 10009: 'BACK'};
@@ -144,12 +151,13 @@
         var panels = document.querySelectorAll('.player-panel');
         var visible = 0;
         for (var i = 0; i < panels.length; i++) {
-            if (panels[i].getClientRects().length && panels[i].offsetParent !== null) visible++;
+            if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.2 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.3 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
+            'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
             'FOCUS: ' + focus() + '\n' +
             (fix.lastError ? 'FIX ERROR: ' + clean(fix.lastError) + '\n' : '') + state.lines.join('\n');
     }
@@ -188,7 +196,7 @@
         observeController();
         add('READY: play Skaz, press DOWN twice, then RIGHT');
         setInterval(function () { observeController(); render(); }, 500);
-        if (Lampa.Noty) Lampa.Noty.show('SKAZ DIAG 0.2 загружен');
+        if (Lampa.Noty) Lampa.Noty.show('SKAZ DIAG 0.3 загружен');
     }
     render();
     if (window.Lampa && window.appready) start();
