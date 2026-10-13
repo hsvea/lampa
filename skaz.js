@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.1.
+/* Lampa: experimental timeline -> player controls focus repair, v0.2 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, storage changes, key remapping or player replacement.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.1', applied: 0, lastError: ''};
+    var api = {version: '0.2', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -94,6 +94,103 @@
         if (Lampa.Noty) Lampa.Noty.show('Исправление фокуса плеера включено');
     }
 
+    if (window.Lampa && window.appready) start();
+    else if (window.Lampa && Lampa.Listener) {
+        Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+    }
+})();
+
+/* On-screen diagnostics. Local only; does not consume or remap key events. */
+(function () {
+    'use strict';
+    if (window.skazRemoteDiagnostics) return;
+    var state = {version: '0.2', lines: [], sequence: 0};
+    window.skazRemoteDiagnostics = state;
+    var box = null;
+    var keys = {13: 'OK', 27: 'BACK', 37: 'LEFT', 38: 'UP', 39: 'RIGHT', 40: 'DOWN', 461: 'BACK', 10009: 'BACK'};
+
+    function clean(value) {
+        return String(value == null ? '-' : value).replace(/[\r\n\t]+/g, ' ').slice(0, 135);
+    }
+    function active() {
+        try { return window.Lampa && Lampa.Controller.enabled(); }
+        catch (e) { return null; }
+    }
+    function focus() {
+        var el = document.querySelector('.player .focus') || document.querySelector('.focus');
+        return el ? clean(el.className) : 'none';
+    }
+    function add(message) {
+        state.lines.push(++state.sequence + ' ' + clean(message));
+        if (state.lines.length > 8) state.lines.shift();
+        render();
+    }
+    function render() {
+        if (!document.body) return;
+        if (!box || !document.body.contains(box)) {
+            box = document.createElement('pre');
+            box.id = 'skaz-remote-diagnostics';
+            box.setAttribute('aria-hidden', 'true');
+            box.style.cssText = 'position:fixed!important;left:18px!important;top:18px!important;right:auto!important;bottom:auto!important;width:78vw!important;max-width:1400px!important;margin:0!important;padding:12px!important;z-index:2147483647!important;background:rgba(0,0,0,.9)!important;color:#b9ffb9!important;font:20px/1.25 monospace!important;white-space:pre-wrap!important;word-break:break-all!important;pointer-events:none!important;text-align:left!important;display:block!important;visibility:visible!important;opacity:1!important;';
+            document.body.appendChild(box);
+        }
+        var a = active();
+        var mobile = '?';
+        var version = '?';
+        try {
+            mobile = Lampa.Platform.screen('mobile');
+            version = Lampa.Manifest.app_version || Lampa.Manifest.app_digital;
+        } catch (e) {}
+        var panels = document.querySelectorAll('.player-panel');
+        var visible = 0;
+        for (var i = 0; i < panels.length; i++) {
+            if (panels[i].getClientRects().length && panels[i].offsetParent !== null) visible++;
+        }
+        var fix = window.skazRemoteFocusFix || {};
+        box.textContent = 'SKAZ DIAG 0.2 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+            'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
+            'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
+            'FOCUS: ' + focus() + '\n' +
+            (fix.lastError ? 'FIX ERROR: ' + clean(fix.lastError) + '\n' : '') + state.lines.join('\n');
+    }
+    function observeController() {
+        var a = active();
+        if (!a || !a.controller || String(a.name).indexOf('player') !== 0) return;
+        ['up', 'down', 'left', 'right', 'enter', 'back'].forEach(function (name) {
+            var original = a.controller[name];
+            if (typeof original !== 'function' || original.__skazObserved) return;
+            var wrapped = function () {
+                add('CALL ' + a.name + '.' + name);
+                try { return original.apply(this, arguments); }
+                catch (e) { add('ERROR ' + clean(e && e.message)); throw e; }
+                finally { setTimeout(render, 60); }
+            };
+            wrapped.__skazObserved = true;
+            a.controller[name] = wrapped;
+        });
+    }
+    function onKey(e) {
+        var code = e.keyCode || e.which;
+        if (!keys[code]) return;
+        var a = active();
+        add('KEY ' + e.type + ' ' + keys[code] + '(' + code + ') ctrl=' + clean(a && a.name));
+        setTimeout(render, 80);
+    }
+    document.addEventListener('keydown', onKey, true);
+    document.addEventListener('keyup', onKey, true);
+    function start() {
+        if (state.started || !window.Lampa || !Lampa.Controller) return;
+        state.started = true;
+        Lampa.Controller.listener.follow('toggle', function (event) {
+            add('CTRL -> ' + clean(event && event.name));
+            observeController();
+        });
+        observeController();
+        add('READY: play Skaz, press DOWN twice, then RIGHT');
+        setInterval(function () { observeController(); render(); }, 500);
+        if (Lampa.Noty) Lampa.Noty.show('SKAZ DIAG 0.2 загружен');
+    }
+    render();
     if (window.Lampa && window.appready) start();
     else if (window.Lampa && Lampa.Listener) {
         Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
