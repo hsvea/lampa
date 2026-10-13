@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.5 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.6 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.5', applied: 0, lastError: ''};
+    var api = {version: '0.6', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -129,7 +129,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.5', lines: [], sequence: 0};
+    var state = {version: '0.6', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -185,7 +185,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.5 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.6 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -250,4 +250,120 @@
     else if (window.Lampa && Lampa.Listener) {
         Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
     }
+})();
+
+/* Initial stream loading diagnostics; no requests, media URLs or credentials sent. */
+(function () {
+    'use strict';
+    if (window.skazStreamDiagnostics) return;
+    var state = {version: '0.6', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    window.skazStreamDiagnostics = state;
+    var box = null, timer = null, preference = 'skaz_stream_loading_debug';
+
+    function enabled() {
+        var value = Lampa.Storage.get(preference, true);
+        return value === true || value === 'true' || value === 1 || value === '1';
+    }
+    function removeBox() {
+        if (box && box.parentNode) box.parentNode.removeChild(box);
+        box = null;
+    }
+    function cleanError(value) {
+        return String(value || 'Неизвестная ошибка').replace(/https?:\/\/[^\s<>"']+/gi, '[URL]')
+            .replace(/(token|password|authorization|signature|key)\s*[:=]\s*[^\s,;]+/gi, '$1=[скрыто]')
+            .replace(/[\r\n\t]+/g, ' ').slice(0, 260);
+    }
+    function source(data) {
+        state.host = '-'; state.format = '-';
+        try {
+            var link = document.createElement('a');
+            link.href = String(data && data.url || '');
+            state.host = link.hostname || '-';
+            var match = (link.pathname || '').match(/\.(m3u8|mpd|mp4|mkv|webm|ts)$/i);
+            state.format = match ? match[1].toUpperCase() : 'не определён по URL';
+        } catch (e) {}
+    }
+    function render() {
+        if (!state.active || state.completed || !enabled()) { removeBox(); return; }
+        if (!document.body) return;
+        if (!box || !document.body.contains(box)) {
+            box = document.createElement('pre');
+            box.id = 'skaz-stream-loading-debug';
+            box.setAttribute('aria-hidden', 'true');
+            box.style.cssText = 'position:fixed!important;right:22px!important;bottom:22px!important;width:70vw!important;max-width:1250px!important;padding:16px!important;margin:0!important;background:rgba(0,0,0,.9)!important;color:#fff!important;font:22px/1.4 monospace!important;z-index:2147483646!important;white-space:pre-wrap!important;word-break:break-word!important;pointer-events:none!important;display:block!important;visibility:visible!important;opacity:1!important;';
+            document.body.appendChild(box);
+        }
+        var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
+        box.textContent = 'ПОТОК · DEBUG 0.6 · ' + seconds + ' с\n' +
+            'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
+            'Этап: ' + state.stage + '\n' +
+            (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…'));
+    }
+    function stop() {
+        state.active = false;
+        clearInterval(timer); timer = null;
+        removeBox();
+    }
+    function complete() {
+        if (!state.active) return;
+        state.completed = true;
+        stop();
+    }
+    function begin(data) {
+        stop();
+        state.active = true; state.completed = false; state.startedAt = Date.now();
+        state.stage = 'Ссылка передана плееру'; state.error = '';
+        state.lastTime = null; state.advances = 0;
+        source(data);
+        render(); timer = setInterval(render, 500);
+    }
+    function stage(text) {
+        if (!state.active) return;
+        state.stage = text;
+        render();
+    }
+    function start() {
+        if (state.started || !window.Lampa || !Lampa.Player) return;
+        state.started = true;
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: preference, type: 'trigger', default: true},
+            field: {name: 'Диагностика загрузки потока', description: 'Показывать при запуске видео и скрывать после начала воспроизведения. При ошибке окно остаётся до выхода из плеера.'},
+            onChange: function () { setTimeout(render, 0); }
+        });
+        Lampa.Player.listener.follow('start', begin);
+        Lampa.Player.listener.follow('destroy', stop);
+        Lampa.Player.listener.follow('external', stop);
+        if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener) {
+            var video = Lampa.PlayerVideo.listener;
+            video.follow('loadeddata', function () { stage('Данные видео получены'); });
+            video.follow('canplay', function () { stage('Плеер готов; ожидаю воспроизведение'); });
+            video.follow('error', function (e) {
+                if (!state.active) return;
+                state.error = cleanError(e && (e.error || e.message));
+                stage(e && e.fatal ? 'Ошибка запуска' : 'Ошибка; ожидаю повторную попытку');
+            });
+            // A play command or canplay does not prove that video has started.
+            // Require two small forward time steps to ignore initial resume seeks.
+            video.follow('timeupdate', function (e) {
+                if (!state.active || !e || typeof e.current !== 'number' || !isFinite(e.current)) return;
+                if (state.lastTime !== null) {
+                    var delta = e.current - state.lastTime;
+                    if (delta > 0 && delta < 3) state.advances++;
+                    else if (delta !== 0) state.advances = 0;
+                }
+                state.lastTime = e.current;
+                if (state.advances >= 2) complete();
+            });
+        }
+        // Some HTML5 backends expose native events instead of PlayerVideo events.
+        document.addEventListener('playing', function (e) {
+            if (!state.active || !e.target || String(e.target.tagName).toLowerCase() !== 'video') return;
+            var root = null;
+            try { root = Lampa.Player.render(); root = root && (root[0] || root); } catch (ignore) {}
+            if (root && root.contains(e.target)) complete();
+        }, true);
+    }
+    if (window.Lampa && window.appready) start();
+    else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
