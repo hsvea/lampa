@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.19 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.20 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,8 +6,13 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.19', applied: 0, lastError: ''};
+    var api = {version: '0.20', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
+
+    function enabled() {
+        var value = Lampa.Storage.get('skaz_remote_fix', true);
+        return value === true || value === 'true' || value === 1 || value === '1';
+    }
 
     function visible(el) {
         if (!el || !el.getClientRects().length) return false;
@@ -39,7 +44,7 @@
     }
 
     function repair() {
-        var root = panel();
+        var root = enabled() ? panel() : null;
         if (!root) return false;
         var list = buttons(root);
         if (!list.length) return false;
@@ -81,7 +86,7 @@
             ['left', 'right'].forEach(function (direction) {
                 var previous = handler[direction];
                 handler[direction] = function () {
-                    var root = panel();
+                    var root = enabled() ? panel() : null;
                     if (root && root.querySelector('.player-panel__timeline.focus') && !buttonFocused(root)) {
                         // A focused timeline needs the seek controller, not button navigation.
                         Lampa.Controller.toggle('player_rewind');
@@ -96,7 +101,7 @@
             });
         }
         handler.down = function () {
-            var root = panel();
+            var root = enabled() ? panel() : null;
             // Only intervene when navigating out of the timeline, or when
             // the panel controller is active but no button has focus.
             if (root && (name === 'player_rewind' || !buttonFocused(root))) {
@@ -130,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.19', lines: [], sequence: 0};
+    var state = {version: '0.20', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.19 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.20 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -230,9 +235,19 @@
         });
         Lampa.SettingsApi.addParam({
             component: 'skaz_remote_control',
+            param: {name: 'skaz_remote_group', type: 'title'},
+            field: {name: 'Пульт'}
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: 'skaz_remote_fix', type: 'trigger', default: true},
+            field: {name: 'Исправление кнопок пульта', description: 'Навигация по кнопкам плеера и перемотка на таймлайне. Изменение применяется сразу.'}
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
             param: {name: preference, type: 'trigger', default: false},
             field: {
-                name: 'Показывать диагностику',
+                name: 'Диагностика пульта',
                 description: 'Кнопки пульта, контроллер и фокус на экране. Исправление управления работает независимо от этого переключателя.'
             },
             onChange: function () { setTimeout(function () { observeController(); render(); }, 0); }
@@ -257,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.19', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.20', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -591,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.19 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.20 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -657,6 +672,11 @@
         state.started = true;
         Lampa.SettingsApi.addParam({
             component: 'skaz_remote_control',
+            param: {name: 'skaz_player_group', type: 'title'},
+            field: {name: 'Плеер'}
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
             param: {name: preference, type: 'trigger', default: true},
             field: {name: 'Диагностика загрузки потока', description: 'Показывать при запуске видео и скрывать после начала воспроизведения. При ошибке окно остаётся до выхода из плеера.'},
             onChange: function () { setTimeout(render, 0); }
@@ -714,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.19'};
+    var api = {status: '', version: '0.20'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -791,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.19'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.20'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -832,7 +852,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.19', status: ''};
+    var api = {version: '0.20', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
