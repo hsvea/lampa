@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.15 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.16 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.15', applied: 0, lastError: ''};
+    var api = {version: '0.16', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.15', lines: [], sequence: 0};
+    var state = {version: '0.16', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.15 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.16 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.15', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.16', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -591,7 +591,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.15 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.16 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsMode && window.skazHlsMode.status ? window.skazHlsMode.status + '\n' : '') +
@@ -620,10 +620,14 @@
         render();
     }
     function complete() {
-        if (!state.active || state.completed || state.error || loadingVisible()) return;
+        if (!state.active || state.completed || loadingVisible()) return;
         if (!stableSince || Date.now() - stableSince < 5000 || state.advances < 4) return;
+        if (state.error) {
+            note('Воспроизведение восстановлено; ошибка сохранена в журнале');
+            state.error = '';
+        }
         note('Воспроизведение стабильно не менее 5 с');
-        state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first, manifests: manifests.slice(0)};
+        state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first, manifests: manifests.slice(0), errors: (state.errorHistory || []).slice(0)};
         state.completed = true;
         cancelProbe();
         removeBox();
@@ -636,7 +640,7 @@
         generation++; lines = []; requests = []; seen = {}; first = {}; manifests = []; linked = {};
         resourceStart = window.performance && performance.now ? performance.now() : 0;
         state.active = true; state.completed = false; state.startedAt = Date.now();
-        state.stage = 'Ссылка передана плееру'; state.error = '';
+        state.stage = 'Ссылка передана плееру'; state.error = ''; state.errorHistory = [];
         state.lastTime = null; state.advances = 0; stableSince = 0; lastAdvanceAt = 0;
         source(data);
         render(); timer = setInterval(tick, 500);
@@ -671,6 +675,10 @@
                 if (!state.active) return;
                 state.completed = false; stableSince = 0;
                 state.error = cleanError(e && (e.error || e.message));
+                state.errorHistory = state.errorHistory || [];
+                state.errorHistory.push({seconds: elapsed(), message: state.error, fatal: !!(e && e.fatal)});
+                if (state.errorHistory.length > 10) state.errorHistory.shift();
+                note('Ошибка: ' + state.error);
                 stage(e && e.fatal ? 'Ошибка запуска' : 'Ошибка; ожидаю повторную попытку');
             });
             // A play command or canplay does not prove that video has started.
@@ -705,7 +713,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.15'};
+    var api = {status: '', version: '0.16'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -782,7 +790,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.15'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.16'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
