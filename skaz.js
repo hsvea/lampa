@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.25 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.26 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.25', applied: 0, lastError: ''};
+    var api = {version: '0.26', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function enabled() {
@@ -135,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.25', lines: [], sequence: 0};
+    var state = {version: '0.26', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -191,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.25 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.26 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -272,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.25', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.26', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -606,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.25 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.26 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -734,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.25'};
+    var api = {status: '', version: '0.26'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -811,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.25'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.26'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -848,11 +848,11 @@
     else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
 
-/* One automatic HLS.js retry after 15 seconds without playback progress. */
+/* One automatic HLS.js retry after 30 seconds without playback progress. */
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.25', status: ''};
+    var api = {version: '0.26', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -876,7 +876,7 @@
         try { var link = document.createElement('a'); link.href = data.url; path = link.pathname; } catch (e) {}
         if (!/\.m3u8$/i.test(path || '')) { api.status = 'Авто: URL не распознан как M3U8'; return; }
         current = data;
-        api.status = 'Авто: ожидаю старт, повтор через 15 с';
+        api.status = 'Авто: ожидаю старт, повтор через 30 с';
         var id = token;
         timer = setTimeout(function () {
             timer = null;
@@ -890,13 +890,13 @@
             Object.keys(data).forEach(function (key) { copy[key] = data[key]; });
             copy.hls_type = 'hlsjs'; copy.__skazHlsRetried = true;
             cancel();
-            api.status = 'Авто: 15 с без воспроизведения → HLS.js';
-            Lampa.Noty.show('Видео не запустилось за 15 с. Пробую HLS.js');
+            api.status = 'Авто: 30 с без воспроизведения → HLS.js';
+            Lampa.Noty.show('Видео не запустилось за 30 с. Пробую HLS.js');
             // Dispose of the old media backend before Lampa starts its replacement.
             if (Lampa.PlayerVideo && Lampa.PlayerVideo.destroy) Lampa.PlayerVideo.destroy(true);
             if (data.iptv_player && typeof Lampa.Player.iptv === 'function') Lampa.Player.iptv(copy);
             else Lampa.Player.play(copy);
-        }, 15000);
+        }, 30000);
     }
     function progress(e) {
         if (!current || !e || typeof e.current !== 'number' || !isFinite(e.current)) return;
@@ -916,7 +916,7 @@
         Lampa.SettingsApi.addParam({
             component: 'skaz_remote_control',
             param: {name: 'skaz_auto_hlsjs', type: 'trigger', default: true},
-            field: {name: 'HLS.js после 15 секунд ожидания', description: 'Одна повторная попытка для M3U8 любого источника, если воспроизведение не началось. Не переключает уже работающий поток.'},
+            field: {name: 'HLS.js после 30 секунд ожидания', description: 'Одна повторная попытка для M3U8 любого источника, если воспроизведение не началось. Не переключает уже работающий поток.'},
             onChange: function () { setTimeout(function () { if (!enabled()) cancel(); }, 0); }
         });
         Lampa.Player.listener.follow('start', begin);
