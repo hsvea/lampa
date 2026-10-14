@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.14 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.15 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.14', applied: 0, lastError: ''};
+    var api = {version: '0.15', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.14', lines: [], sequence: 0};
+    var state = {version: '0.15', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.14 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.15 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.14', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.15', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -591,9 +591,10 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.14 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.15 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
+            (window.skazHlsMode && window.skazHlsMode.status ? window.skazHlsMode.status + '\n' : '') +
             (window.skazDirectHls && window.skazDirectHls.status ? window.skazDirectHls.status + '\n' : '') +
             (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
     }
@@ -704,7 +705,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.14'};
+    var api = {status: '', version: '0.15'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -772,6 +773,47 @@
         Lampa.Player.listener.follow('destroy', cancel);
         Lampa.Player.listener.follow('external', cancel);
         Lampa.Player.listener.follow('start', function () { cancel(); api.status = ''; });
+    }
+    if (window.Lampa && window.appready) start();
+    else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+})();
+
+/* Select Lampa's built-in HLS.js backend only for VK streams. */
+(function () {
+    'use strict';
+    if (window.skazHlsMode) return;
+    var api = {status: '', version: '0.15'}, selected = null, oldValue, hadValue = false;
+    window.skazHlsMode = api;
+    function restore() {
+        if (selected && selected.hls_type === 'hlsjs') {
+            if (hadValue) selected.hls_type = oldValue;
+            else delete selected.hls_type;
+        }
+        selected = null;
+    }
+    function start() {
+        if (api.started) return;
+        api.started = true;
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: 'skaz_vk_hlsjs', type: 'trigger', default: true},
+            field: {name: 'VK: использовать HLS.js', description: 'Пробовать штатный HLS.js вместо нативного HLS. Применяется при следующем запуске видео.'}
+        });
+        Lampa.Player.listener.follow('start', function (data) {
+            restore(); api.status = '';
+            var value = Lampa.Storage.get('skaz_vk_hlsjs', true), url;
+            if (!(value === true || value === 'true' || value === 1 || value === '1')) return;
+            try { url = new URL(data.url); } catch (e) { return; }
+            if (!/(^|\.)vkvideo\.cloud$/i.test(url.hostname) || !/\.m3u8$/i.test(url.pathname)) return;
+            try {
+                if (!window.Hls || !Hls.isSupported()) { api.status = 'VK HLS.js: недоступен; обычный запуск'; return; }
+                selected = data; hadValue = Object.prototype.hasOwnProperty.call(data, 'hls_type'); oldValue = data.hls_type;
+                data.hls_type = 'hlsjs';
+                api.status = 'VK: запрошен HLS.js ' + String(Hls.version || '');
+            } catch (e) { restore(); api.status = 'VK HLS.js: проверка не удалась'; }
+        });
+        Lampa.Player.listener.follow('destroy', restore);
+        Lampa.Player.listener.follow('external', restore);
     }
     if (window.Lampa && window.appready) start();
     else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
