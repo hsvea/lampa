@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.20 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.21 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.20', applied: 0, lastError: ''};
+    var api = {version: '0.21', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function enabled() {
@@ -135,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.20', lines: [], sequence: 0};
+    var state = {version: '0.21', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -191,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.20 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.21 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -272,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.20', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.21', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -606,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.20 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.21 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -734,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.20'};
+    var api = {status: '', version: '0.21'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -811,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.20'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.21'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -852,7 +852,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.20', status: ''};
+    var api = {version: '0.21', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -928,6 +928,125 @@
             // Startup backends emit pause before any frame. This is not a user cancellation.
             // A real pause after playback is already covered by progress cancellation.
         }
+    }
+    if (window.Lampa && window.appready) start();
+    else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+})();
+
+/* Lightweight availability checks for URLs exposed by translation/stream menus. */
+(function () {
+    'use strict';
+    if (window.skazStreamAvailability) return;
+    var api = {version: '0.21'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0;
+    window.skazStreamAvailability = api;
+    function enabled() {
+        var v = Lampa.Storage.get('skaz_stream_availability', true);
+        return v === true || v === 'true' || v === 1 || v === '1';
+    }
+    function stop() {
+        generation++; jobs = [];
+        var old = pending; pending = [];
+        old.forEach(function (x) { try { x.abort(); } catch (e) {} });
+    }
+    function urls(item) {
+        var result = [], seen = [], count = 0;
+        function walk(v, depth) {
+            if (++count > 1000 || depth > 5 || result.length >= 32) return;
+            if (typeof v === 'string') {
+                // Only complete media URLs, never the shortened subtitles shown by Skaz.
+                if (!/^https?:\/\/[^\s<>]+$/i.test(v) || /\.\.\.|…/.test(v)) return;
+                var a = document.createElement('a'); a.href = v;
+                if (/\.m3u8$/i.test(a.pathname) && result.indexOf(a.href) < 0) result.push(a.href);
+            } else if (v && typeof v === 'object' && !v.nodeType && !v.jquery) {
+                if (seen.indexOf(v) >= 0) return;
+                seen.push(v);
+                Object.keys(v).forEach(function (key) {
+                    if (key === 'html' || key === 'subtitle' || key === 'title') return;
+                    try { walk(v[key], depth + 1); } catch (e) {}
+                });
+            }
+        }
+        walk(item, 0); return result;
+    }
+    function remember(url, result) {
+        if (!cache[url]) cacheOrder.push(url);
+        cache[url] = {time: Date.now(), result: result};
+        while (cacheOrder.length > 128) delete cache[cacheOrder.shift()];
+    }
+    function request(job, id) {
+        var x = new XMLHttpRequest(), done = false;
+        pending.push(x); x.__skazProbe = true;
+        function finish(result) {
+            if (done) return; done = true;
+            var i = pending.indexOf(x); if (i >= 0) pending.splice(i, 1);
+            if (id !== generation) return;
+            remember(job.url, result);
+            job.callbacks.forEach(function (f) { f(result); });
+            pump(id);
+        }
+        try {
+            x.open('GET', job.url, true); x.timeout = 5000;
+            x.onload = function () {
+                if (x.status >= 200 && x.status < 300) {
+                    finish(/^\s*#EXTM3U(?:\s|$)/.test(x.responseText || '') ? {ok: true, text: '✓ Плейлист доступен'} : {ok: false, text: '? Ответ не M3U8'});
+                } else finish({ok: false, text: x.status ? '✕ HTTP ' + x.status : '? Нет ответа / CORS'});
+            };
+            x.onerror = function () { finish({ok: false, text: '? Сеть / CORS / TLS'}); };
+            x.ontimeout = function () { finish({ok: false, text: '? Нет ответа за 5 с'}); };
+            x.onprogress = function (e) { if (e.loaded > 524288) { finish({ok: false, text: '? Плейлист слишком большой'}); x.abort(); } };
+            x.send();
+        } catch (e) { finish({ok: false, text: '? Проверка недоступна'}); }
+    }
+    function pump(id) {
+        if (id !== generation || !enabled()) return;
+        while (pending.length < 2 && jobs.length) request(jobs.shift(), id);
+    }
+    function inspect(event) {
+        stop();
+        if (!enabled()) return;
+        var menu = event && event.active;
+        if (!menu || !/выберите\s+(перевод|поток)/i.test(String(menu.title || '')) || !Array.isArray(menu.items)) return;
+        var root = event.html && (event.html[0] || event.html);
+        if (!root || !root.querySelectorAll) return;
+        var rows = root.querySelectorAll('.selectbox-item'), index = 0, byUrl = {}, id = generation, total = 0;
+        menu.items.forEach(function (item) {
+            if (item.hide || item.separator) return;
+            var row = rows[index++]; if (!row) return;
+            var old = row.querySelector('.skaz-stream-check'); if (old) old.parentNode.removeChild(old);
+            var label = document.createElement('div'); label.className = 'skaz-stream-check';
+            label.style.cssText = 'font-size:.8em;opacity:.85;margin-top:.3em;white-space:normal';
+            row.appendChild(label);
+            var list = urls(item), complete = 0, good = 0;
+            if (!list.length) { label.textContent = 'Проверка после получения ссылок на потоки'; return; }
+            label.textContent = 'Проверяю плейлист…';
+            function update(result) {
+                if (id !== generation) return;
+                complete++; if (result.ok) good++;
+                label.textContent = list.length === 1 ? result.text : 'Плейлисты доступны: ' + good + '/' + list.length + ' · проверено ' + complete + '/' + list.length;
+            }
+            list.forEach(function (url) {
+                var c = cache[url];
+                if (c && Date.now() - c.time < 120000) { update(c.result); return; }
+                if (byUrl[url]) { byUrl[url].callbacks.push(update); return; }
+                if (total >= 64) { update({ok: false, text: '? Лимит проверки списка'}); return; }
+                total++;
+                var job = {url: url, callbacks: [update]}; byUrl[url] = job; jobs.push(job);
+            });
+        });
+        pump(id);
+    }
+    function start() {
+        if (api.started || !Lampa.Select || !Lampa.Select.listener) return;
+        api.started = true;
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: 'skaz_stream_availability', type: 'trigger', default: true},
+            field: {name: 'Проверять доступность потоков', description: 'Проверка M3U8 в списках переводов и потоков. Доступность плейлиста не гарантирует воспроизведение.'},
+            onChange: function () { stop(); }
+        });
+        Lampa.Select.listener.follow('fullshow', inspect);
+        Lampa.Select.listener.follow('hide', stop);
+        Lampa.Player.listener.follow('start', stop);
     }
     if (window.Lampa && window.appready) start();
     else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
