@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.7 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.8 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.7', applied: 0, lastError: ''};
+    var api = {version: '0.8', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -129,7 +129,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.7', lines: [], sequence: 0};
+    var state = {version: '0.8', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -185,7 +185,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.7 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.8 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -256,17 +256,72 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.7', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.8', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
     var generation = 0, resourceStart = 0, observer = null;
-    var lines = [], requests = [], seen = {}, first = {};
+    var lines = [], requests = [], seen = {}, first = {}, manifests = [], linked = {};
     function elapsed() { return ((Date.now() - state.startedAt) / 1000).toFixed(1); }
     function note(text) {
         if (!state.active || !enabled()) return;
         lines.push(elapsed() + ' с: ' + text);
         if (lines.length > 6) lines.shift();
+    }
+    function inspectManifest(xhr, info, base) {
+        if (!enabled()) return;
+        var text;
+        try {
+            if (xhr.responseType && xhr.responseType !== 'text') {
+                if (info.kind === 'M3U8') { manifests.push('M3U8: тело недоступно (бинарный ответ)'); if (manifests.length > 2) manifests.shift(); }
+                return;
+            }
+            text = xhr.responseText;
+        } catch (e) {
+            if (info.kind === 'M3U8') { manifests.push('M3U8: чтение тела недоступно'); if (manifests.length > 2) manifests.shift(); }
+            return;
+        }
+        if (typeof text !== 'string') return;
+        var valid = /^\s*#EXTM3U(?:\s|$)/.test(text);
+        if (!valid && info.kind !== 'M3U8') return;
+        if (!valid) {
+            manifests.push('M3U8: нет заголовка #EXTM3U; ' + (/^\s*</.test(text) ? 'HTML/XML' : /^\s*[\[{]/.test(text) ? 'JSON' : 'другой ответ') + ', символов ' + text.length);
+        } else if (text.length > 1048576) {
+            manifests.push('M3U8: более 1 МБ; разбор пропущен');
+        } else {
+            var rows = text.split(/\r?\n/), variants = 0, segments = 0, keys = 0, maps = 0, hosts = [], encrypted = false;
+            function link(uri, kind) {
+                try {
+                    var url;
+                    if (window.URL) url = new URL(uri, base).href;
+                    else {
+                        var a = document.createElement('a'); a.href = base;
+                        url = /^https?:\/\//i.test(uri) ? uri : /^\/\//.test(uri) ? a.protocol + uri :
+                            uri.charAt(0) === '/' ? a.protocol + '//' + a.host + uri : base.split('?')[0].replace(/[^/]*$/, '') + uri;
+                    }
+                    var target = document.createElement('a'); target.href = url;
+                    if (!/^https?:$/.test(target.protocol)) return;
+                    if (hosts.indexOf(target.hostname) < 0) hosts.push(target.hostname);
+                    if (Object.keys(linked).length < 2000) linked[url] = kind;
+                } catch (ignore) {}
+            }
+            var nextVariant = false;
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i].replace(/^\s+|\s+$/g, '');
+                if (!row) continue;
+                if (row.indexOf('#EXT-X-STREAM-INF:') === 0) { variants++; nextVariant = true; }
+                if (row.indexOf('#EXTINF:') === 0) segments++;
+                if (/^#EXT-X-(SESSION-)?KEY:/.test(row) && !/METHOD=NONE(?:,|$)/.test(row)) { keys++; encrypted = true; }
+                if (row.indexOf('#EXT-X-MAP:') === 0) maps++;
+                var match = row.match(/(?:[:,])URI="([^"]+)"/);
+                if (match) link(match[1], /KEY:/.test(row) ? 'Ключ' : /MAP:/.test(row) ? 'Init-сегмент' : 'M3U8');
+                if (row.charAt(0) !== '#') { link(row, nextVariant ? 'M3U8' : 'Сегмент/медиа'); nextVariant = false; }
+            }
+            manifests.push('M3U8: ' + (variants ? 'master, вариантов ' + variants : 'media, сегментов ' + segments) +
+                ', шифрование ' + (encrypted ? 'да (' + keys + ')' : 'не указано') + ', init ' + maps +
+                '\nСсылки → ' + (hosts.slice(0, 3).join(', ') || 'не найдены'));
+        }
+        while (manifests.length > 2) manifests.shift();
     }
     function identify(url) {
         try {
@@ -274,6 +329,7 @@
             var path = a.pathname || '';
             var kind = /\.m3u8$/i.test(path) ? 'M3U8' : /\.mpd$/i.test(path) ? 'MPD' :
                 /\.(ts|m4s|aac|mp4|m4a)$/i.test(path) ? 'Сегмент/медиа' : '';
+            kind = linked[a.href] || kind;
             if (!kind && a.hostname !== state.host) return null;
             return {label: (kind || 'Запрос') + ' ' + a.hostname, kind: kind || 'Запрос'};
         } catch (e) { return null; }
@@ -310,6 +366,7 @@
         if (first.M3U8) text += '\nПервый M3U8 завершён: ' + first.M3U8;
         if (first['Сегмент/медиа']) text += '\nПервый сегмент/медиа завершён: ' + first['Сегмент/медиа'];
         if (!lines.length && !pending.length) text += '\nСетевых событий не видно: запросы могут идти внутри MSX/ТВ.';
+        text += manifests.length ? '\n' + manifests.join('\n') : '\nТело M3U8 пока не прочитано.';
         return text + (lines.length ? '\n' + lines.join('\n') : '');
     }
     function installNetwork() {
@@ -341,6 +398,9 @@
                 record.done = true;
                 ['load', 'error', 'timeout', 'abort'].forEach(function (name) { xhr.removeEventListener(name, finish); });
                 if (gen !== generation || !state.active) return;
+                if (e.type === 'load') {
+                    try { inspectManifest(xhr, info, xhr.responseURL || xhr.__skazNetUrl); } catch (ignore) {}
+                }
                 var status = 0;
                 try { status = xhr.status; } catch (ignore) {}
                 note(record.label + ': ' + e.type + ', ' + (status ? 'HTTP ' + status : 'HTTP недоступен') + ', ' + ((Date.now() - record.at) / 1000).toFixed(2) + ' с');
@@ -385,7 +445,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.7 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.8 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
@@ -398,13 +458,13 @@
     function complete() {
         if (!state.active) return;
         note('Воспроизведение началось');
-        state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first};
+        state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first, manifests: manifests.slice(0)};
         state.completed = true;
         stop();
     }
     function begin(data) {
         stop();
-        generation++; lines = []; requests = []; seen = {}; first = {};
+        generation++; lines = []; requests = []; seen = {}; first = {}; manifests = []; linked = {};
         resourceStart = window.performance && performance.now ? performance.now() : 0;
         state.active = true; state.completed = false; state.startedAt = Date.now();
         state.stage = 'Ссылка передана плееру'; state.error = '';
