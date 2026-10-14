@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.17 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.18 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.17', applied: 0, lastError: ''};
+    var api = {version: '0.18', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.17', lines: [], sequence: 0};
+    var state = {version: '0.18', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.17 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.18 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.17', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.18', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -591,7 +591,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.17 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.18 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -714,7 +714,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.17'};
+    var api = {status: '', version: '0.18'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -791,7 +791,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.17'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.18'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -832,7 +832,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.17', status: ''};
+    var api = {version: '0.18', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -850,16 +850,19 @@
     function begin(data) {
         cancel(); api.status = ''; last = null; advances = 0;
         if (data && data.__skazHlsRetried) { api.status = 'Авто: повтор через HLS.js выполнен'; return; }
-        if (!enabled() || !data || data.iptv || data.iptv_player || typeof data.url !== 'string' || !/\.m3u8(?:[?#]|$)/i.test(data.url)) return;
+        if (!enabled()) { api.status = 'Авто: выключено в настройках'; return; }
+        if (!data || data.iptv || data.iptv_player || typeof data.url !== 'string' || !/\.m3u8(?:[?#]|$)/i.test(data.url)) { api.status = 'Авто: поток не подходит для повтора M3U8'; return; }
         current = data;
+        api.status = 'Авто: ожидаю старт, повтор через 15 с';
         var id = token;
         timer = setTimeout(function () {
             timer = null;
             if (id !== token || !current || !enabled()) return;
             // Do not restart another source, an external player or an existing MSE session.
-            if (Lampa.Player.playdata && Lampa.Player.playdata() !== data) { cancel(); return; }
+            var active = Lampa.Player.playdata && Lampa.Player.playdata();
+            if (active && active !== data && active.url !== data.url) { api.status = 'Авто: отменено — источник изменился'; cancel(); return; }
             if (alreadyMse(data)) { api.status = 'Авто: HLS.js/MSE уже используется'; cancel(); return; }
-            if (!window.Hls || !Hls.isSupported()) { api.status = 'Авто: HLS.js не поддерживается'; cancel(); return; }
+            if (!window.Hls || typeof Hls.isSupported !== 'function' || !Hls.isSupported()) { api.status = 'Авто: HLS.js не поддерживается'; cancel(); return; }
             var copy = {};
             Object.keys(data).forEach(function (key) { copy[key] = data[key]; });
             copy.hls_type = 'hlsjs'; copy.__skazHlsRetried = true;
@@ -881,7 +884,7 @@
             else if (delta !== 0 || loading) advances = 0;
         }
         last = e.current;
-        if (advances >= 2) cancel();
+        if (advances >= 2) { api.status = 'Авто: воспроизведение началось, повтор отменён'; cancel(); }
     }
     function start() {
         if (api.started) return;
@@ -893,12 +896,13 @@
             onChange: function () { setTimeout(function () { if (!enabled()) cancel(); }, 0); }
         });
         Lampa.Player.listener.follow('start', begin);
-        Lampa.Player.listener.follow('create', cancel);
+        Lampa.Player.listener.follow('create', function () { if (current) api.status = 'Авто: отменено — новый запуск'; cancel(); });
         Lampa.Player.listener.follow('destroy', cancel);
         Lampa.Player.listener.follow('external', cancel);
         if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener) {
             Lampa.PlayerVideo.listener.follow('timeupdate', progress);
-            Lampa.PlayerVideo.listener.follow('pause', cancel);
+            // Startup backends emit pause before any frame. This is not a user cancellation.
+            // A real pause after playback is already covered by progress cancellation.
         }
     }
     if (window.Lampa && window.appready) start();
