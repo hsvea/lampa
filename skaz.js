@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.21 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.22 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.21', applied: 0, lastError: ''};
+    var api = {version: '0.22', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function enabled() {
@@ -135,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.21', lines: [], sequence: 0};
+    var state = {version: '0.22', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -191,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.21 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.22 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -272,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.21', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.22', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -606,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.21 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.22 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -734,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.21'};
+    var api = {status: '', version: '0.22'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -811,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.21'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.22'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -852,7 +852,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.21', status: ''};
+    var api = {version: '0.22', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -937,36 +937,44 @@
 (function () {
     'use strict';
     if (window.skazStreamAvailability) return;
-    var api = {version: '0.21'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0;
+    var api = {version: '0.22'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0, menuTimer = null, reported = false;
     window.skazStreamAvailability = api;
     function enabled() {
         var v = Lampa.Storage.get('skaz_stream_availability', true);
         return v === true || v === 'true' || v === 1 || v === '1';
     }
     function stop() {
-        generation++; jobs = [];
+        generation++; jobs = []; clearTimeout(menuTimer); menuTimer = null;
         var old = pending; pending = [];
         old.forEach(function (x) { try { x.abort(); } catch (e) {} });
     }
     function urls(item) {
-        var result = [], seen = [], count = 0;
-        function walk(v, depth) {
-            if (++count > 1000 || depth > 5 || result.length >= 32) return;
-            if (typeof v === 'string') {
-                // Only complete media URLs, never the shortened subtitles shown by Skaz.
-                if (!/^https?:\/\/[^\s<>]+$/i.test(v) || /\.\.\.|…/.test(v)) return;
-                var a = document.createElement('a'); a.href = v;
-                if (/\.m3u8$/i.test(a.pathname) && result.indexOf(a.href) < 0) result.push(a.href);
-            } else if (v && typeof v === 'object' && !v.nodeType && !v.jquery) {
-                if (seen.indexOf(v) >= 0) return;
-                seen.push(v);
-                Object.keys(v).forEach(function (key) {
-                    if (key === 'html' || key === 'subtitle' || key === 'title') return;
-                    try { walk(v[key], depth + 1); } catch (e) {}
+        var result = [];
+        function scan(obj) {
+            if (!obj || typeof obj !== 'object') return;
+            Object.keys(obj).slice(0, 32).forEach(function (key) {
+                var d = Object.getOwnPropertyDescriptor(obj, key);
+                if (!d || typeof d.value !== 'string' || d.value.length > 8192) return;
+                var matches = d.value.match(/https?:\/\/[^\s<>"']+/gi) || [];
+                matches.slice(0, 8).forEach(function (v) {
+                    if (/\.\.\.|…/.test(v)) return;
+                    var a = document.createElement('a'); a.href = v;
+                    if (/\.m3u8$/i.test(a.pathname) && result.indexOf(a.href) < 0) result.push(a.href);
                 });
-            }
+            });
         }
-        walk(item, 0); return result;
+        scan(item);
+        ['data', 'stream', 'file'].forEach(function (key) {
+            var d = Object.getOwnPropertyDescriptor(item, key);
+            if (d && d.value && typeof d.value === 'object') scan(d.value);
+        });
+        return result.slice(0, 8);
+    }
+    function shape(item) {
+        return Object.keys(item).slice(0, 16).map(function (key) {
+            var d = Object.getOwnPropertyDescriptor(item, key);
+            return key.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) + ':' + (d && 'value' in d ? typeof d.value : 'getter');
+        }).join(', ');
     }
     function remember(url, result) {
         if (!cache[url]) cacheOrder.push(url);
@@ -1009,15 +1017,22 @@
         var root = event.html && (event.html[0] || event.html);
         if (!root || !root.querySelectorAll) return;
         var rows = root.querySelectorAll('.selectbox-item'), index = 0, byUrl = {}, id = generation, total = 0;
-        menu.items.forEach(function (item) {
+        menu.items.slice(0, 64).forEach(function (item) {
             if (item.hide || item.separator) return;
             var row = rows[index++]; if (!row) return;
             var old = row.querySelector('.skaz-stream-check'); if (old) old.parentNode.removeChild(old);
+            var list = urls(item), complete = 0, good = 0;
+            if (!list.length) {
+                if (!reported && /поток/i.test(menu.title)) {
+                    reported = true;
+                    api.itemShape = shape(item);
+                    Lampa.Noty.show('Skaz: полная ссылка не найдена. Поля: ' + api.itemShape);
+                }
+                return;
+            }
             var label = document.createElement('div'); label.className = 'skaz-stream-check';
             label.style.cssText = 'font-size:.8em;opacity:.85;margin-top:.3em;white-space:normal';
             row.appendChild(label);
-            var list = urls(item), complete = 0, good = 0;
-            if (!list.length) { label.textContent = 'Проверка после получения ссылок на потоки'; return; }
             label.textContent = 'Проверяю плейлист…';
             function update(result) {
                 if (id !== generation) return;
@@ -1044,7 +1059,10 @@
             field: {name: 'Проверять доступность потоков', description: 'Проверка M3U8 в списках переводов и потоков. Доступность плейлиста не гарантирует воспроизведение.'},
             onChange: function () { stop(); }
         });
-        Lampa.Select.listener.follow('fullshow', inspect);
+        Lampa.Select.listener.follow('fullshow', function (event) {
+            stop();
+            if (enabled()) menuTimer = setTimeout(function () { inspect(event); }, 600);
+        });
         Lampa.Select.listener.follow('hide', stop);
         Lampa.Player.listener.follow('start', stop);
     }
