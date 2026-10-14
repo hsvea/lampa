@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.6 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.7 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.6', applied: 0, lastError: ''};
+    var api = {version: '0.7', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -129,7 +129,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.6', lines: [], sequence: 0};
+    var state = {version: '0.7', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -185,7 +185,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.6 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.7 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -256,9 +256,100 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.6', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.7', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
+
+    var generation = 0, resourceStart = 0, observer = null;
+    var lines = [], requests = [], seen = {}, first = {};
+    function elapsed() { return ((Date.now() - state.startedAt) / 1000).toFixed(1); }
+    function note(text) {
+        if (!state.active || !enabled()) return;
+        lines.push(elapsed() + ' с: ' + text);
+        if (lines.length > 6) lines.shift();
+    }
+    function identify(url) {
+        try {
+            var a = document.createElement('a'); a.href = String(url || '');
+            var path = a.pathname || '';
+            var kind = /\.m3u8$/i.test(path) ? 'M3U8' : /\.mpd$/i.test(path) ? 'MPD' :
+                /\.(ts|m4s|aac|mp4|m4a)$/i.test(path) ? 'Сегмент/медиа' : '';
+            if (!kind && a.hostname !== state.host) return null;
+            return {label: (kind || 'Запрос') + ' ' + a.hostname, kind: kind || 'Запрос'};
+        } catch (e) { return null; }
+    }
+    function resource(entry) {
+        if (!state.active || !enabled() || entry.startTime < resourceStart) return;
+        var info = identify(entry.name);
+        if (!info) return;
+        var key = entry.name + ':' + entry.startTime;
+        if (seen[key]) return;
+        seen[key] = true;
+        var detail = info.label + ': ' + (entry.duration / 1000).toFixed(2) + ' с всего';
+        if (entry.responseStart > 0 && entry.requestStart > 0) {
+            detail += ', ответ ' + ((entry.responseStart - entry.requestStart) / 1000).toFixed(2) + ' с';
+        } else detail += ', TTFB недоступен';
+        if (entry.responseStatus) detail += ', HTTP ' + entry.responseStatus;
+        if (!first[info.kind]) first[info.kind] = elapsed() + ' с';
+        note(detail);
+    }
+    function pollNetwork() {
+        if (!state.active || !enabled()) return;
+        if (!observer && window.performance && performance.getEntriesByType) {
+            var entries = performance.getEntriesByType('resource');
+            for (var i = 0; i < entries.length; i++) resource(entries[i]);
+        }
+    }
+    function networkText() {
+        pollNetwork();
+        var pending = [];
+        for (var i = 0; i < requests.length; i++) {
+            if (!requests[i].done) pending.push(requests[i].label + ' ' + ((Date.now() - requests[i].at) / 1000).toFixed(0) + ' с');
+        }
+        var text = pending.length ? 'Ожидание XHR: ' + pending.slice(-2).join('; ') : '';
+        if (first.M3U8) text += '\nПервый M3U8 завершён: ' + first.M3U8;
+        if (first['Сегмент/медиа']) text += '\nПервый сегмент/медиа завершён: ' + first['Сегмент/медиа'];
+        if (!lines.length && !pending.length) text += '\nСетевых событий не видно: запросы могут идти внутри MSX/ТВ.';
+        return text + (lines.length ? '\n' + lines.join('\n') : '');
+    }
+    function installNetwork() {
+        try {
+            if (window.PerformanceObserver) {
+                observer = new PerformanceObserver(function (list) {
+                    var entries = list.getEntries();
+                    for (var i = 0; i < entries.length; i++) resource(entries[i]);
+                });
+                observer.observe({entryTypes: ['resource']});
+            }
+        } catch (e) { observer = null; }
+        // Observe existing XHRs only. No probes, changed headers or request retries.
+        if (!window.XMLHttpRequest) return;
+        var proto = XMLHttpRequest.prototype, open = proto.open, send = proto.send;
+        proto.open = function (method, url) {
+            var result = open.apply(this, arguments);
+            this.__skazNetUrl = typeof url === 'string' ? url : '';
+            return result;
+        };
+        proto.send = function () {
+            var xhr = this, info = state.active && enabled() && identify(xhr.__skazNetUrl);
+            if (!info || !xhr.addEventListener) return send.apply(xhr, arguments);
+            var gen = generation, record = {label: info.label, at: Date.now(), done: false};
+            requests.push(record);
+            if (requests.length > 60) requests.shift();
+            function finish(e) {
+                if (record.done) return;
+                record.done = true;
+                ['load', 'error', 'timeout', 'abort'].forEach(function (name) { xhr.removeEventListener(name, finish); });
+                if (gen !== generation || !state.active) return;
+                var status = 0;
+                try { status = xhr.status; } catch (ignore) {}
+                note(record.label + ': ' + e.type + ', ' + (status ? 'HTTP ' + status : 'HTTP недоступен') + ', ' + ((Date.now() - record.at) / 1000).toFixed(2) + ' с');
+            }
+            ['load', 'error', 'timeout', 'abort'].forEach(function (name) { xhr.addEventListener(name, finish); });
+            try { return send.apply(xhr, arguments); }
+            catch (error) { finish({type: 'исключение send'}); throw error; }
+        };
+    }
 
     function enabled() {
         var value = Lampa.Storage.get(preference, true);
@@ -294,10 +385,10 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.6 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.7 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
-            (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…'));
+            (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
     }
     function stop() {
         state.active = false;
@@ -306,11 +397,15 @@
     }
     function complete() {
         if (!state.active) return;
+        note('Воспроизведение началось');
+        state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first};
         state.completed = true;
         stop();
     }
     function begin(data) {
         stop();
+        generation++; lines = []; requests = []; seen = {}; first = {};
+        resourceStart = window.performance && performance.now ? performance.now() : 0;
         state.active = true; state.completed = false; state.startedAt = Date.now();
         state.stage = 'Ссылка передана плееру'; state.error = '';
         state.lastTime = null; state.advances = 0;
@@ -320,6 +415,7 @@
     function stage(text) {
         if (!state.active) return;
         state.stage = text;
+        note(text);
         render();
     }
     function start() {
@@ -331,11 +427,15 @@
             field: {name: 'Диагностика загрузки потока', description: 'Показывать при запуске видео и скрывать после начала воспроизведения. При ошибке окно остаётся до выхода из плеера.'},
             onChange: function () { setTimeout(render, 0); }
         });
+        installNetwork();
         Lampa.Player.listener.follow('start', begin);
         Lampa.Player.listener.follow('destroy', stop);
         Lampa.Player.listener.follow('external', stop);
         if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener) {
             var video = Lampa.PlayerVideo.listener;
+            video.follow('progress', function (e) {
+                if (state.active && e && e.down != null) state.stage = 'Буферизация: ' + cleanError(e.down);
+            });
             video.follow('loadeddata', function () { stage('Данные видео получены'); });
             video.follow('canplay', function () { stage('Плеер готов; ожидаю воспроизведение'); });
             video.follow('error', function (e) {
