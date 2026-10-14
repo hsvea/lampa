@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.8 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.9 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * No network requests, key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.8', applied: 0, lastError: ''};
+    var api = {version: '0.9', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -129,7 +129,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.8', lines: [], sequence: 0};
+    var state = {version: '0.9', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -185,7 +185,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.8 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.9 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -256,7 +256,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.8', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.9', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -445,7 +445,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.8 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.9 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
@@ -455,12 +455,28 @@
         clearInterval(timer); timer = null;
         removeBox();
     }
+    var stableSince = 0, lastAdvanceAt = 0;
+    function loadingVisible() {
+        return !!document.querySelector('.player .video--load, .player.player--loading');
+    }
+    function tick() {
+        if (state.active && loadingVisible()) {
+            stableSince = 0; state.advances = 0;
+            if (state.completed) {
+                state.completed = false;
+                stage('Повторная буферизация');
+            }
+        }
+        render();
+    }
     function complete() {
-        if (!state.active) return;
-        note('Воспроизведение началось');
+        if (!state.active || state.completed || state.error || loadingVisible()) return;
+        if (!stableSince || Date.now() - stableSince < 5000 || state.advances < 4) return;
+        note('Воспроизведение стабильно не менее 5 с');
         state.lastReport = {seconds: elapsed(), host: state.host, events: lines.slice(0), first: first, manifests: manifests.slice(0)};
         state.completed = true;
-        stop();
+        removeBox();
+        // Keep monitoring buffering until the player is closed.
     }
     function begin(data) {
         stop();
@@ -468,9 +484,9 @@
         resourceStart = window.performance && performance.now ? performance.now() : 0;
         state.active = true; state.completed = false; state.startedAt = Date.now();
         state.stage = 'Ссылка передана плееру'; state.error = '';
-        state.lastTime = null; state.advances = 0;
+        state.lastTime = null; state.advances = 0; stableSince = 0; lastAdvanceAt = 0;
         source(data);
-        render(); timer = setInterval(render, 500);
+        render(); timer = setInterval(tick, 500);
     }
     function stage(text) {
         if (!state.active) return;
@@ -500,17 +516,20 @@
             video.follow('canplay', function () { stage('Плеер готов; ожидаю воспроизведение'); });
             video.follow('error', function (e) {
                 if (!state.active) return;
+                state.completed = false; stableSince = 0;
                 state.error = cleanError(e && (e.error || e.message));
                 stage(e && e.fatal ? 'Ошибка запуска' : 'Ошибка; ожидаю повторную попытку');
             });
             // A play command or canplay does not prove that video has started.
-            // Require two small forward time steps to ignore initial resume seeks.
+            // Require sustained forward progress without the Lampa loading indicator.
             video.follow('timeupdate', function (e) {
                 if (!state.active || !e || typeof e.current !== 'number' || !isFinite(e.current)) return;
                 if (state.lastTime !== null) {
                     var delta = e.current - state.lastTime;
-                    if (delta > 0 && delta < 3) state.advances++;
-                    else if (delta !== 0) state.advances = 0;
+                    if (delta > 0 && delta < 3 && !loadingVisible()) {
+                        if (!stableSince || Date.now() - lastAdvanceAt > 3000) { stableSince = Date.now(); state.advances = 0; }
+                        lastAdvanceAt = Date.now(); state.advances++;
+                    } else if (delta !== 0 || loadingVisible()) { state.advances = 0; stableSince = 0; }
                 }
                 state.lastTime = e.current;
                 if (state.advances >= 2) complete();
@@ -521,7 +540,7 @@
             if (!state.active || !e.target || String(e.target.tagName).toLowerCase() !== 'video') return;
             var root = null;
             try { root = Lampa.Player.render(); root = root && (root[0] || root); } catch (ignore) {}
-            if (root && root.contains(e.target)) complete();
+            if (root && root.contains(e.target)) stage('Сигнал playing; проверяю стабильное воспроизведение');
         }, true);
     }
     if (window.Lampa && window.appready) start();
