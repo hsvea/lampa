@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.13 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.14 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.13', applied: 0, lastError: ''};
+    var api = {version: '0.14', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.13', lines: [], sequence: 0};
+    var state = {version: '0.14', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.13 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.14 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.13', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.14', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -269,6 +269,64 @@
         lines.push(elapsed() + ' с: ' + text);
         if (lines.length > 6) lines.shift();
     }
+    var mediaDetails = [];
+    function inspectMP4(buffer, label) {
+        if (!buffer || !buffer.byteLength) return;
+        var view = new DataView(buffer), report = [], count = 0;
+        function u32(p) { return view.getUint32(p); }
+        function four(p) {
+            var s = ''; for (var j = 0; j < 4; j++) s += String.fromCharCode(view.getUint8(p + j));
+            return /^[a-zA-Z0-9 ._-]{4}$/.test(s) ? s : '????';
+        }
+        function walk(start, end, depth, track) {
+            if (depth > 8) return;
+            for (var p = start; p + 8 <= end && count++ < 3000;) {
+                var size = u32(p), type = four(p + 4), head = 8;
+                if (size === 1) { if (p + 16 > end) return; size = u32(p + 8) * 4294967296 + u32(p + 12); head = 16; }
+                if (!size) size = end - p;
+                if (size < head || size > end - p) return;
+                var q = p + head, stop = p + size;
+                if (type === 'trak' || type === 'traf') {
+                    var info = {}; walk(q, stop, depth + 1, info);
+                    var parts = [];
+                    ['id','handler','codec','scale','tfdt','samples'].forEach(function (k) { if (info[k] !== undefined) parts.push(k + '=' + info[k]); });
+                    if (parts.length) report.push(parts.join(' '));
+                } else if (/^(moov|mdia|minf|stbl|moof)$/.test(type)) walk(q, stop, depth + 1, track);
+                else if (track) {
+                    var v = q < stop ? view.getUint8(q) : 0;
+                    if (type === 'tkhd' && q + (v === 1 ? 24 : 16) <= stop) track.id = u32(q + (v === 1 ? 20 : 12));
+                    if (type === 'mdhd' && q + (v === 1 ? 24 : 16) <= stop) track.scale = u32(q + (v === 1 ? 20 : 12));
+                    if (type === 'hdlr' && q + 12 <= stop) track.handler = four(q + 8);
+                    if (type === 'stsd' && q + 16 <= stop && u32(q + 4) > 0) track.codec = four(q + 12);
+                    if (type === 'tfhd' && q + 8 <= stop) track.id = u32(q + 4);
+                    if (type === 'tfdt' && q + (v === 1 ? 12 : 8) <= stop) {
+                        var ticks = v === 1 ? u32(q + 4) * 4294967296 + u32(q + 8) : u32(q + 4);
+                        track.tfdt = ticks <= 9007199254740991 ? ticks : 'слишком велико';
+                    }
+                    if (type === 'trun' && q + 8 <= stop) track.samples = (track.samples || 0) + u32(q + 4);
+                }
+                p = stop;
+            }
+        }
+        try { walk(0, buffer.byteLength, 0, null); }
+        catch (e) { report.push('неполные/неразобранные MP4-данные'); }
+        mediaDetails.push(label + ': ' + (report.slice(0, 4).join('; ') || 'дорожки/метки не найдены в полученных данных'));
+        if (mediaDetails.length > 2) mediaDetails.shift();
+    }
+    function backendText() {
+        try {
+            var v = Lampa.PlayerVideo && Lampa.PlayerVideo.video && Lampa.PlayerVideo.video();
+            if (!v) return 'Плеер: объект ещё недоступен';
+            var tag = String(v.tagName || 'обёртка').toLowerCase();
+            var kind = tag === 'video' ? (String(v.currentSrc || v.src || '').indexOf('blob:') === 0 ? 'HTML5/MSE' : 'HTML5') : tag === 'object' && v.type === 'application/avplayer' ? 'AVPlay' : tag;
+            var text = 'Плеер: ' + kind + ' | ready=' + v.readyState + ' network=' + v.networkState + '\n';
+            text += 't=' + (typeof v.currentTime === 'number' ? v.currentTime.toFixed(1) : '?') + ' seeking=' + v.seeking + ' muted=' + v.muted + ' volume=' + v.volume;
+            if (v.audioTracks) text += ' audioTracks=' + v.audioTracks.length;
+            if (v.error) text += ' error=' + cleanError(v.error.code);
+            return text;
+        } catch (e) { return 'Плеер: состояние недоступно'; }
+    }
+
     var probeQueue = [], probeSeen = {}, probeRequested = {}, probeLines = [], probeXhr = null, probeCount = 0, segmentQueued = false, initQueued = false;
     function queueProbe(url, kind, range) {
         if (kind !== 'M3U8' && kind !== 'Сегмент/медиа' && kind !== 'Init-сегмент') return;
@@ -305,6 +363,10 @@
             if (gen !== generation || !state.active || state.completed) return;
             var status = xhr.status || 0;
             probeNote(item.kind + ': ' + reason + ', ' + (status ? 'HTTP ' + status : 'статус скрыт: сеть/CORS/TLS') + ', ' + ((Date.now() - at) / 1000).toFixed(2) + ' с');
+            if (inspect && status >= 200 && status < 300 && item.kind !== 'M3U8') {
+                inspectMP4(xhr.response, item.kind);
+                if (item.kind === 'Сегмент/медиа' && xhr.response) probeNote('Сегмент: средняя скорость ' + (xhr.response.byteLength * 8 / Math.max(1, Date.now() - at) / 1000).toFixed(2) + ' Мбит/с');
+            }
             if (inspect && status >= 200 && status < 300 && item.kind === 'M3U8') {
                 inspectManifest(xhr, {kind: 'M3U8'}, xhr.responseURL || item.url);
             }
@@ -312,11 +374,11 @@
         try {
             xhr.open('GET', item.url, true);
             xhr.timeout = 15000;
-            if (item.kind !== 'M3U8') { xhr.responseType = 'arraybuffer'; xhr.setRequestHeader('Range', item.range || 'bytes=0-65535'); }
+            if (item.kind !== 'M3U8') { xhr.responseType = 'arraybuffer'; if (item.kind === 'Init-сегмент' || item.range) xhr.setRequestHeader('Range', item.range || 'bytes=0-65535'); }
             xhr.onprogress = function (event) {
-                var limit = item.kind === 'M3U8' ? 1048576 : 65536;
+                var limit = item.kind === 'M3U8' ? 1048576 : item.kind === 'Init-сегмент' ? 65536 : 8388608;
                 if (event.loaded >= limit) {
-                    finish(item.kind === 'M3U8' ? 'плейлист больше лимита' : 'получены первые 64 КиБ; тест остановлен', false);
+                    finish(item.kind === 'M3U8' ? 'плейлист больше лимита' : 'достигнут лимит байтов; тест остановлен', false);
                     xhr.abort();
                 }
             };
@@ -447,6 +509,7 @@
         if (first['Сегмент/медиа']) text += '\nПервый сегмент/медиа завершён: ' + first['Сегмент/медиа'];
         if (!lines.length && !pending.length) text += '\nСетевых событий не видно: запросы могут идти внутри MSX/ТВ.';
         text += manifests.length ? '\n' + manifests.join('\n') : '\nТело M3U8 пока не прочитано.';
+        text += '\n' + backendText() + (mediaDetails.length ? '\nMP4: ' + mediaDetails.join('\n') : '');
         text += probeLines.length ? '\nТЕСТ JS (отдельно от плеера):\n' + probeLines.join('\n') : '';
         return text + (lines.length ? '\n' + lines.join('\n') : '');
     }
@@ -528,7 +591,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.13 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.14 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazDirectHls && window.skazDirectHls.status ? window.skazDirectHls.status + '\n' : '') +
@@ -567,6 +630,7 @@
     }
     function begin(data) {
         stop();
+        mediaDetails = [];
         probeQueue = []; probeSeen = {}; probeRequested = {}; probeLines = []; probeCount = 0; segmentQueued = false; initQueued = false;
         generation++; lines = []; requests = []; seen = {}; first = {}; manifests = []; linked = {};
         resourceStart = window.performance && performance.now ? performance.now() : 0;
@@ -640,7 +704,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.13'};
+    var api = {status: '', version: '0.14'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -673,13 +737,13 @@
         api.started = true;
         Lampa.SettingsApi.addParam({
             component: 'skaz_remote_control',
-            param: {name: preference, type: 'trigger', default: true},
+            param: {name: preference, type: 'trigger', default: false},
             field: {name: 'VK: прямой запуск HLS', description: 'Эксперимент: запуск единственного варианта напрямую. Выключите для сравнения с обычным запуском.'}
         });
         var original = Lampa.PlayerVideo.url;
         Lampa.PlayerVideo.url = function (src) {
             cancel(); api.status = '';
-            var value = Lampa.Storage.get(preference, true), url;
+            var value = Lampa.Storage.get(preference, false), url;
             try { url = new URL(src); } catch (e) {}
             if (!(value === true || value === 'true' || value === 1 || value === '1') || !url ||
                 !/(^|\.)vkvideo\.cloud$/i.test(url.hostname) || !/\.m3u8$/i.test(url.pathname)) return original.apply(this, arguments);
