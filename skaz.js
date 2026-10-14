@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.11 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.12 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.11', applied: 0, lastError: ''};
+    var api = {version: '0.12', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.11', lines: [], sequence: 0};
+    var state = {version: '0.12', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.11 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.12 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.11', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.12', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -269,27 +269,30 @@
         lines.push(elapsed() + ' с: ' + text);
         if (lines.length > 6) lines.shift();
     }
-    var probeQueue = [], probeSeen = {}, probeRequested = {}, probeLines = [], probeXhr = null, probeCount = 0, segmentQueued = false;
-    function queueProbe(url, kind) {
-        if (kind !== 'M3U8' && kind !== 'Сегмент/медиа') return;
+    var probeQueue = [], probeSeen = {}, probeRequested = {}, probeLines = [], probeXhr = null, probeCount = 0, segmentQueued = false, initQueued = false;
+    function queueProbe(url, kind, range) {
+        if (kind !== 'M3U8' && kind !== 'Сегмент/медиа' && kind !== 'Init-сегмент') return;
         if (probeSeen[url] || probeQueue.length >= 3) return;
-        if (kind === 'Сегмент/медиа') {
+        if (kind === 'Init-сегмент') {
+            if (initQueued) return;
+            initQueued = true;
+        } else if (kind === 'Сегмент/медиа') {
             if (segmentQueued) return;
             segmentQueued = true;
         } else if (probeQueue.some(function (item) { return item.kind === 'M3U8'; })) return;
         probeSeen[url] = true;
-        probeQueue.push({url: url, kind: kind});
+        probeQueue.push({url: url, kind: kind, range: range});
     }
     function probeNote(text) {
         probeLines.push(elapsed() + ' с: ' + text);
-        if (probeLines.length > 4) probeLines.shift();
+        if (probeLines.length > 6) probeLines.shift();
     }
     function cancelProbe() {
         if (probeXhr) { var xhr = probeXhr; probeXhr = null; xhr.abort(); }
     }
     function runProbe() {
         if (!enabled() || !state.active || state.completed) { cancelProbe(); return; }
-        if (Date.now() - state.startedAt < 10000 || probeXhr || probeCount >= 3 || !probeQueue.length) return;
+        if (Date.now() - state.startedAt < 10000 || probeXhr || probeCount >= 4 || !probeQueue.length) return;
         var item = probeQueue.shift(), gen = generation, at = Date.now(), done = false;
         var xhr = new XMLHttpRequest(); probeXhr = xhr; probeCount++;
         probeRequested[item.url] = true;
@@ -309,7 +312,7 @@
         try {
             xhr.open('GET', item.url, true);
             xhr.timeout = 15000;
-            if (item.kind !== 'M3U8') { xhr.responseType = 'arraybuffer'; xhr.setRequestHeader('Range', 'bytes=0-65535'); }
+            if (item.kind !== 'M3U8') { xhr.responseType = 'arraybuffer'; xhr.setRequestHeader('Range', item.range || 'bytes=0-65535'); }
             xhr.onprogress = function (event) {
                 var limit = item.kind === 'M3U8' ? 1048576 : 65536;
                 if (event.loaded >= limit) {
@@ -346,8 +349,8 @@
         } else if (text.length > 1048576) {
             manifests.push('M3U8: более 1 МБ; разбор пропущен');
         } else {
-            var rows = text.split(/\r?\n/), variants = 0, segments = 0, keys = 0, maps = 0, hosts = [], encrypted = false;
-            function link(uri, kind, probe) {
+            var rows = text.split(/\r?\n/), variants = 0, segments = 0, keys = 0, maps = 0, hosts = [], encrypted = false, codecs = [];
+            function link(uri, kind, probe, range) {
                 try {
                     var url;
                     if (window.URL) url = new URL(uri, base).href;
@@ -360,23 +363,41 @@
                     if (!/^https?:$/.test(target.protocol)) return;
                     if (hosts.indexOf(target.hostname) < 0) hosts.push(target.hostname);
                     if (Object.keys(linked).length < 2000) linked[url] = kind;
-                    if (probe) queueProbe(url, kind);
+                    if (probe) queueProbe(url, kind, range);
                 } catch (ignore) {}
             }
             var nextVariant = false;
             for (var i = 0; i < rows.length; i++) {
                 var row = rows[i].replace(/^\s+|\s+$/g, '');
                 if (!row) continue;
-                if (row.indexOf('#EXT-X-STREAM-INF:') === 0) { variants++; nextVariant = true; }
+                if (row.indexOf('#EXT-X-STREAM-INF:') === 0) {
+                    variants++; nextVariant = true;
+                    var codec = row.match(/(?:[:,])CODECS="([^"]+)"/);
+                    if (codec && /^[a-zA-Z0-9., _-]{1,160}$/.test(codec[1]) && codecs.length < 3 && codecs.indexOf(codec[1]) < 0) codecs.push(codec[1]);
+                }
                 if (row.indexOf('#EXTINF:') === 0) segments++;
                 if (/^#EXT-X-(SESSION-)?KEY:/.test(row) && !/METHOD=NONE(?:,|$)/.test(row)) { keys++; encrypted = true; }
                 if (row.indexOf('#EXT-X-MAP:') === 0) maps++;
                 var match = row.match(/(?:[:,])URI="([^"]+)"/);
-                if (match) link(match[1], /KEY:/.test(row) ? 'Ключ' : /MAP:/.test(row) ? 'Init-сегмент' : 'M3U8');
+                if (match) {
+                    var isMap = row.indexOf('#EXT-X-MAP:') === 0;
+                    var byteRange = row.match(/BYTERANGE="(\d+)(?:@(\d+))?"/);
+                    var range = null, canProbe = isMap;
+                    if (isMap && byteRange) {
+                        if (byteRange[2] === undefined) { canProbe = false; probeNote('Init: не проверен — неявное смещение BYTERANGE'); }
+                        else {
+                            var offset = Number(byteRange[2]), length = Number(byteRange[1]);
+                            canProbe = length > 0 && offset >= 0 && offset + length <= 9007199254740991;
+                            range = 'bytes=' + offset + '-' + (offset + Math.min(length, 65536) - 1);
+                        }
+                    }
+                    link(match[1], /KEY:/.test(row) ? 'Ключ' : isMap ? 'Init-сегмент' : 'M3U8', canProbe, range);
+                }
                 if (row.charAt(0) !== '#') { link(row, nextVariant ? 'M3U8' : 'Сегмент/медиа', true); nextVariant = false; }
             }
             manifests.push('M3U8: ' + (variants ? 'master, вариантов ' + variants : 'media, сегментов ' + segments) +
                 ', шифрование ' + (encrypted ? 'да (' + keys + ')' : 'не указано') + ', init ' + maps +
+                (variants ? '\nCODECS: ' + (codecs.join('; ') || 'не указаны') : '') +
                 '\nСсылки → ' + (hosts.slice(0, 3).join(', ') || 'не найдены'));
         }
         while (manifests.length > 2) manifests.shift();
@@ -507,7 +528,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.11 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.12 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
@@ -545,7 +566,7 @@
     }
     function begin(data) {
         stop();
-        probeQueue = []; probeSeen = {}; probeRequested = {}; probeLines = []; probeCount = 0; segmentQueued = false;
+        probeQueue = []; probeSeen = {}; probeRequested = {}; probeLines = []; probeCount = 0; segmentQueued = false; initQueued = false;
         generation++; lines = []; requests = []; seen = {}; first = {}; manifests = []; linked = {};
         resourceStart = window.performance && performance.now ? performance.now() : 0;
         state.active = true; state.completed = false; state.startedAt = Date.now();
