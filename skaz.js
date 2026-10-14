@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.24 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.25 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.24', applied: 0, lastError: ''};
+    var api = {version: '0.25', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function enabled() {
@@ -135,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.24', lines: [], sequence: 0};
+    var state = {version: '0.25', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -191,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.24 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.25 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -272,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.24', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.25', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -606,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.24 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.25 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -734,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.24'};
+    var api = {status: '', version: '0.25'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -811,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.24'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.25'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -852,7 +852,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.24', status: ''};
+    var api = {version: '0.25', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -933,162 +933,3 @@
     else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
 
-/* Lightweight availability checks for URLs exposed by translation/stream menus. */
-(function () {
-    'use strict';
-    if (window.skazStreamAvailability) return;
-    var api = {version: '0.24'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0, menuTimer = null, debugBox = null;
-    window.skazStreamAvailability = api;
-    function renderDebug() {
-        var v = Lampa.Storage.get('skaz_stream_list_debug', true);
-        var show = v === true || v === 'true' || v === 1 || v === '1';
-        if (!show || !api.itemShape) {
-            if (debugBox && debugBox.parentNode) debugBox.parentNode.removeChild(debugBox);
-            debugBox = null; return;
-        }
-        if (!document.body) return;
-        if (!debugBox) {
-            debugBox = document.createElement('pre');
-            debugBox.id = 'skaz-stream-list-debug';
-            debugBox.style.cssText = 'position:fixed;left:20px;bottom:24px;width:90vw;max-height:80vh;overflow:auto;box-sizing:border-box;padding:14px;margin:0;background:rgba(0,0,0,.9);color:#fff;font:20px/1.35 monospace;white-space:pre-wrap;word-break:break-all;z-index:2147483647;pointer-events:none';
-            document.body.appendChild(debugBox);
-        }
-        debugBox.textContent = 'SKAZ · СПИСОК ПОТОКОВ ' + api.version + '\nПолная ссылка не найдена. Поля элемента:\n' + api.itemShape + '\n\nSUBTITLE · длина ' + (api.itemSubtitle || '').length + ':\n' + (api.itemSubtitle || '(пусто)') + '\n\nСкрыть: Skaz: управление → Плеер → Диагностика списка потоков';
-    }
-    function enabled() {
-        var v = Lampa.Storage.get('skaz_stream_availability', true);
-        return v === true || v === 'true' || v === 1 || v === '1';
-    }
-    function stop() {
-        generation++; jobs = []; clearTimeout(menuTimer); menuTimer = null;
-        var old = pending; pending = [];
-        old.forEach(function (x) { try { x.abort(); } catch (e) {} });
-    }
-    function urls(item) {
-        var result = [];
-        function scan(obj) {
-            if (!obj || typeof obj !== 'object') return;
-            Object.keys(obj).slice(0, 32).forEach(function (key) {
-                var d = Object.getOwnPropertyDescriptor(obj, key);
-                if (!d || typeof d.value !== 'string' || d.value.length > 8192) return;
-                var matches = d.value.match(/https?:\/\/[^\s<>"']+/gi) || [];
-                matches.slice(0, 8).forEach(function (v) {
-                    if (/\.\.\.|…/.test(v)) return;
-                    var a = document.createElement('a'); a.href = v;
-                    if (/\.m3u8$/i.test(a.pathname) && result.indexOf(a.href) < 0) result.push(a.href);
-                });
-            });
-        }
-        scan(item);
-        ['data', 'stream', 'file'].forEach(function (key) {
-            var d = Object.getOwnPropertyDescriptor(item, key);
-            if (d && d.value && typeof d.value === 'object') scan(d.value);
-        });
-        return result.slice(0, 8);
-    }
-    function shape(item) {
-        return Object.keys(item).slice(0, 16).map(function (key) {
-            var d = Object.getOwnPropertyDescriptor(item, key);
-            return key.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) + ':' + (d && 'value' in d ? typeof d.value : 'getter');
-        }).join(', ');
-    }
-    function remember(url, result) {
-        if (!cache[url]) cacheOrder.push(url);
-        cache[url] = {time: Date.now(), result: result};
-        while (cacheOrder.length > 128) delete cache[cacheOrder.shift()];
-    }
-    function request(job, id) {
-        var x = new XMLHttpRequest(), done = false;
-        pending.push(x); x.__skazProbe = true;
-        function finish(result) {
-            if (done) return; done = true;
-            var i = pending.indexOf(x); if (i >= 0) pending.splice(i, 1);
-            if (id !== generation) return;
-            remember(job.url, result);
-            job.callbacks.forEach(function (f) { f(result); });
-            pump(id);
-        }
-        try {
-            x.open('GET', job.url, true); x.timeout = 5000;
-            x.onload = function () {
-                if (x.status >= 200 && x.status < 300) {
-                    finish(/^\s*#EXTM3U(?:\s|$)/.test(x.responseText || '') ? {ok: true, text: '✓ Плейлист доступен'} : {ok: false, text: '? Ответ не M3U8'});
-                } else finish({ok: false, text: x.status ? '✕ HTTP ' + x.status : '? Нет ответа / CORS'});
-            };
-            x.onerror = function () { finish({ok: false, text: '? Сеть / CORS / TLS'}); };
-            x.ontimeout = function () { finish({ok: false, text: '? Нет ответа за 5 с'}); };
-            x.onprogress = function (e) { if (e.loaded > 524288) { finish({ok: false, text: '? Плейлист слишком большой'}); x.abort(); } };
-            x.send();
-        } catch (e) { finish({ok: false, text: '? Проверка недоступна'}); }
-    }
-    function pump(id) {
-        if (id !== generation || !enabled()) return;
-        while (pending.length < 2 && jobs.length) request(jobs.shift(), id);
-    }
-    function inspect(event) {
-        stop();
-        if (!enabled()) return;
-        var menu = event && event.active;
-        if (!menu || !/выберите\s+(перевод|поток)/i.test(String(menu.title || '')) || !Array.isArray(menu.items)) return;
-        var root = event.html && (event.html[0] || event.html);
-        if (!root || !root.querySelectorAll) return;
-        var rows = root.querySelectorAll('.selectbox-item'), index = 0, byUrl = {}, id = generation, total = 0;
-        menu.items.slice(0, 64).forEach(function (item) {
-            if (item.hide || item.separator) return;
-            var row = rows[index++]; if (!row) return;
-            var old = row.querySelector('.skaz-stream-check'); if (old) old.parentNode.removeChild(old);
-            var list = urls(item), complete = 0, good = 0;
-            if (!list.length) {
-                if (index === 1 && /поток/i.test(menu.title)) {
-                    api.itemShape = shape(item);
-                    var subtitle = Object.getOwnPropertyDescriptor(item, 'subtitle');
-                    api.itemSubtitle = subtitle && typeof subtitle.value === 'string' ? subtitle.value : '';
-                    renderDebug();
-                }
-                return;
-            }
-            var label = document.createElement('div'); label.className = 'skaz-stream-check';
-            label.style.cssText = 'font-size:.8em;opacity:.85;margin-top:.3em;white-space:normal';
-            row.appendChild(label);
-            label.textContent = 'Проверяю плейлист…';
-            function update(result) {
-                if (id !== generation) return;
-                complete++; if (result.ok) good++;
-                label.textContent = list.length === 1 ? result.text : 'Плейлисты доступны: ' + good + '/' + list.length + ' · проверено ' + complete + '/' + list.length;
-            }
-            list.forEach(function (url) {
-                var c = cache[url];
-                if (c && Date.now() - c.time < 120000) { update(c.result); return; }
-                if (byUrl[url]) { byUrl[url].callbacks.push(update); return; }
-                if (total >= 64) { update({ok: false, text: '? Лимит проверки списка'}); return; }
-                total++;
-                var job = {url: url, callbacks: [update]}; byUrl[url] = job; jobs.push(job);
-            });
-        });
-        pump(id);
-    }
-    function start() {
-        if (api.started || !Lampa.Select || !Lampa.Select.listener) return;
-        api.started = true;
-        Lampa.SettingsApi.addParam({
-            component: 'skaz_remote_control',
-            param: {name: 'skaz_stream_availability', type: 'trigger', default: true},
-            field: {name: 'Проверять доступность потоков', description: 'Проверка M3U8 в списках переводов и потоков. Доступность плейлиста не гарантирует воспроизведение.'},
-            onChange: function () { stop(); }
-        });
-        Lampa.SettingsApi.addParam({
-            component: 'skaz_remote_control',
-            param: {name: 'skaz_stream_list_debug', type: 'trigger', default: true},
-            field: {name: 'Диагностика списка потоков', description: 'Постоянное окно с полями элемента, если полная ссылка не найдена. Можно скрыть этим переключателем.'},
-            onChange: function () { setTimeout(renderDebug, 0); }
-        });
-        Lampa.Select.listener.follow('fullshow', function (event) {
-            stop();
-            if (enabled()) menuTimer = setTimeout(function () { inspect(event); }, 600);
-        });
-        Lampa.Select.listener.follow('hide', stop);
-        Lampa.Player.listener.follow('start', stop);
-    }
-    if (window.Lampa && window.appready) start();
-    else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
-})();
