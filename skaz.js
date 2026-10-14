@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.12 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.13 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.12', applied: 0, lastError: ''};
+    var api = {version: '0.13', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function visible(el) {
@@ -130,7 +130,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.12', lines: [], sequence: 0};
+    var state = {version: '0.13', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -186,7 +186,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.12 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.13 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -257,7 +257,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.12', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.13', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -528,9 +528,10 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.12 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.13 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
+            (window.skazDirectHls && window.skazDirectHls.status ? window.skazDirectHls.status + '\n' : '') +
             (state.error ? 'Ошибка: ' + state.error : (seconds >= 30 ? 'Долгое ожидание. Причина пока не определена.' : 'Ожидаю начало воспроизведения…')) + '\n' + networkText();
     }
     function stop() {
@@ -634,3 +635,80 @@
     else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
 })();
 
+
+/* Opt-out experiment: flatten a single-variant VK master before player loading. */
+(function () {
+    'use strict';
+    if (window.skazDirectHls) return;
+    var api = {status: '', version: '0.13'};
+    window.skazDirectHls = api;
+    var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
+    function cancel() {
+        serial++;
+        if (pending) { var xhr = pending; pending = null; xhr.abort(); }
+    }
+    function child(text, base) {
+        if (!/^\s*#EXTM3U(?:\s|$)/.test(text) || text.length > 1048576) return null;
+        // Preserve external audio/subtitles, session keys and variable substitution.
+        if (/#EXT-X-(MEDIA:|SESSION-KEY:|DEFINE:)/.test(text)) return null;
+        var lines = text.split(/\r?\n/), urls = [], want = false, count = 0;
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].replace(/^\s+|\s+$/g, '');
+            if (line.indexOf('#EXT-X-STREAM-INF:') === 0) { count++; want = true; }
+            else if (line && line.charAt(0) !== '#') {
+                if (want) urls.push(line);
+                want = false;
+            }
+        }
+        if (count !== 1 || urls.length !== 1 || want) return null;
+        try {
+            var result = new URL(urls[0], base);
+            if (result.protocol !== 'https:' && result.protocol !== 'http:') return null;
+            if (result.href === base) return null;
+            return result.href;
+        } catch (e) { return null; }
+    }
+    function start() {
+        if (api.started || !Lampa.PlayerVideo || typeof Lampa.PlayerVideo.url !== 'function') return;
+        api.started = true;
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: preference, type: 'trigger', default: true},
+            field: {name: 'VK: прямой запуск HLS', description: 'Эксперимент: запуск единственного варианта напрямую. Выключите для сравнения с обычным запуском.'}
+        });
+        var original = Lampa.PlayerVideo.url;
+        Lampa.PlayerVideo.url = function (src) {
+            cancel(); api.status = '';
+            var value = Lampa.Storage.get(preference, true), url;
+            try { url = new URL(src); } catch (e) {}
+            if (!(value === true || value === 'true' || value === 1 || value === '1') || !url ||
+                !/(^|\.)vkvideo\.cloud$/i.test(url.hostname) || !/\.m3u8$/i.test(url.pathname)) return original.apply(this, arguments);
+            var self = this, args = Array.prototype.slice.call(arguments), id = serial, finished = false;
+            var xhr = new XMLHttpRequest(); pending = xhr; xhr.__skazProbe = true;
+            api.status = 'VK: проверяю основной плейлист';
+            function finish(replacement) {
+                if (finished || id !== serial) return;
+                finished = true; pending = null;
+                if (replacement) { args[0] = replacement; api.status = 'VK: прямой вложенный M3U8'; }
+                else api.status = 'VK: обычный запуск (подмена не применена)';
+                original.apply(self, args);
+            }
+            try {
+                xhr.open('GET', src, true); xhr.timeout = 5000;
+                xhr.onload = function () {
+                    var replacement = null;
+                    try { if (xhr.status >= 200 && xhr.status < 300) replacement = child(xhr.responseText, xhr.responseURL || src); } catch (e) {}
+                    finish(replacement);
+                };
+                xhr.onerror = xhr.ontimeout = function () { finish(null); };
+                xhr.onprogress = function (e) { if (e.loaded > 1048576) { xhr.abort(); finish(null); } };
+                xhr.send();
+            } catch (e) { xhr.abort(); finish(null); }
+        };
+        Lampa.Player.listener.follow('destroy', cancel);
+        Lampa.Player.listener.follow('external', cancel);
+        Lampa.Player.listener.follow('start', function () { cancel(); api.status = ''; });
+    }
+    if (window.Lampa && window.appready) start();
+    else if (window.Lampa && Lampa.Listener) Lampa.Listener.follow('app', function (e) { if (e.type === 'ready') start(); });
+})();
