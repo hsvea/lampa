@@ -1,4 +1,4 @@
-/* Lampa: experimental timeline -> player controls focus repair, v0.22 diagnostics.
+/* Lampa: experimental timeline -> player controls focus repair, v0.23 diagnostics.
  * Uses Lampa controllers, so it also covers MSX-generated navigation.
  * Limited startup probes; no key remapping or player replacement. Diagnostics preference is saved.
  * Disable this extension and restart Lampa to undo.
@@ -6,7 +6,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteFocusFix) return;
-    var api = {version: '0.22', applied: 0, lastError: ''};
+    var api = {version: '0.23', applied: 0, lastError: ''};
     window.skazRemoteFocusFix = api;
 
     function enabled() {
@@ -135,7 +135,7 @@
 (function () {
     'use strict';
     if (window.skazRemoteDiagnostics) return;
-    var state = {version: '0.22', lines: [], sequence: 0};
+    var state = {version: '0.23', lines: [], sequence: 0};
     window.skazRemoteDiagnostics = state;
     var box = null;
     var preference = 'skaz_remote_diagnostics';
@@ -191,7 +191,7 @@
             if (panels[i].getClientRects().length) visible++;
         }
         var fix = window.skazRemoteFocusFix || {};
-        box.textContent = 'SKAZ DIAG 0.22 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
+        box.textContent = 'SKAZ DIAG 0.23 | Lampa ' + clean(version) + ' | frame=' + (window.top === window.self ? 'top' : 'iframe') + '\n' +
             'CTRL: ' + clean(a && a.name) + ' | mobile=' + mobile + ' | fixes=' + (fix.applied || 0) + '\n' +
             'PANELS: ' + panels.length + '/' + visible + ' visible | buttons=' + document.querySelectorAll('.player-panel .button.selector').length + '\n' +
             'PANEL CSS: ' + (panels.length ? clean(window.getComputedStyle(panels[0]).display + '/' + window.getComputedStyle(panels[0]).position + ' offsetParent=' + (panels[0].offsetParent === null ? 'null' : 'set')) : '-') + '\n' +
@@ -272,7 +272,7 @@
 (function () {
     'use strict';
     if (window.skazStreamDiagnostics) return;
-    var state = {version: '0.22', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
+    var state = {version: '0.23', active: false, completed: false, startedAt: 0, stage: '', error: '', host: '-', format: '-', lastTime: null, advances: 0};
     window.skazStreamDiagnostics = state;
     var box = null, timer = null, preference = 'skaz_stream_loading_debug';
 
@@ -606,7 +606,7 @@
             document.body.appendChild(box);
         }
         var seconds = Math.floor((Date.now() - state.startedAt) / 1000);
-        box.textContent = 'ПОТОК · DEBUG 0.22 · ' + seconds + ' с\n' +
+        box.textContent = 'ПОТОК · DEBUG 0.23 · ' + seconds + ' с\n' +
             'Сервер: ' + state.host + ' | Формат: ' + state.format + '\n' +
             'Этап: ' + state.stage + '\n' +
             (window.skazHlsFallback && window.skazHlsFallback.status ? window.skazHlsFallback.status + '\n' : '') +
@@ -734,7 +734,7 @@
 (function () {
     'use strict';
     if (window.skazDirectHls) return;
-    var api = {status: '', version: '0.22'};
+    var api = {status: '', version: '0.23'};
     window.skazDirectHls = api;
     var pending = null, serial = 0, preference = 'skaz_direct_vk_hls';
     function cancel() {
@@ -811,7 +811,7 @@
 (function () {
     'use strict';
     if (window.skazHlsMode) return;
-    var api = {status: '', version: '0.22'}, selected = null, oldValue, hadValue = false;
+    var api = {status: '', version: '0.23'}, selected = null, oldValue, hadValue = false;
     window.skazHlsMode = api;
     function restore() {
         if (selected && selected.hls_type === 'hlsjs') {
@@ -852,7 +852,7 @@
 (function () {
     'use strict';
     if (window.skazHlsFallback) return;
-    var api = {version: '0.22', status: ''};
+    var api = {version: '0.23', status: ''};
     window.skazHlsFallback = api;
     var timer = null, current = null, last = null, advances = 0, token = 0;
     function enabled() {
@@ -937,8 +937,24 @@
 (function () {
     'use strict';
     if (window.skazStreamAvailability) return;
-    var api = {version: '0.22'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0, menuTimer = null, reported = false;
+    var api = {version: '0.23'}, cache = {}, cacheOrder = [], jobs = [], pending = [], generation = 0, menuTimer = null, debugBox = null;
     window.skazStreamAvailability = api;
+    function renderDebug() {
+        var v = Lampa.Storage.get('skaz_stream_list_debug', true);
+        var show = v === true || v === 'true' || v === 1 || v === '1';
+        if (!show || !api.itemShape) {
+            if (debugBox && debugBox.parentNode) debugBox.parentNode.removeChild(debugBox);
+            debugBox = null; return;
+        }
+        if (!document.body) return;
+        if (!debugBox) {
+            debugBox = document.createElement('pre');
+            debugBox.id = 'skaz-stream-list-debug';
+            debugBox.style.cssText = 'position:fixed;left:20px;bottom:24px;width:44vw;max-height:45vh;overflow:hidden;box-sizing:border-box;padding:14px;margin:0;background:rgba(0,0,0,.9);color:#fff;font:20px/1.35 monospace;white-space:pre-wrap;word-break:break-word;z-index:2147483647;pointer-events:none';
+            document.body.appendChild(debugBox);
+        }
+        debugBox.textContent = 'SKAZ · СПИСОК ПОТОКОВ ' + api.version + '\nПолная ссылка не найдена. Поля элемента:\n' + api.itemShape + '\n\nСкрыть: Skaz: управление → Плеер → Диагностика списка потоков';
+    }
     function enabled() {
         var v = Lampa.Storage.get('skaz_stream_availability', true);
         return v === true || v === 'true' || v === 1 || v === '1';
@@ -1023,10 +1039,9 @@
             var old = row.querySelector('.skaz-stream-check'); if (old) old.parentNode.removeChild(old);
             var list = urls(item), complete = 0, good = 0;
             if (!list.length) {
-                if (!reported && /поток/i.test(menu.title)) {
-                    reported = true;
+                if (index === 1 && /поток/i.test(menu.title)) {
                     api.itemShape = shape(item);
-                    Lampa.Noty.show('Skaz: полная ссылка не найдена. Поля: ' + api.itemShape);
+                    renderDebug();
                 }
                 return;
             }
@@ -1058,6 +1073,12 @@
             param: {name: 'skaz_stream_availability', type: 'trigger', default: true},
             field: {name: 'Проверять доступность потоков', description: 'Проверка M3U8 в списках переводов и потоков. Доступность плейлиста не гарантирует воспроизведение.'},
             onChange: function () { stop(); }
+        });
+        Lampa.SettingsApi.addParam({
+            component: 'skaz_remote_control',
+            param: {name: 'skaz_stream_list_debug', type: 'trigger', default: true},
+            field: {name: 'Диагностика списка потоков', description: 'Постоянное окно с полями элемента, если полная ссылка не найдена. Можно скрыть этим переключателем.'},
+            onChange: function () { setTimeout(renderDebug, 0); }
         });
         Lampa.Select.listener.follow('fullshow', function (event) {
             stop();
